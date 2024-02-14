@@ -12,33 +12,44 @@
 #include <stack>
 #include <chrono>
 #include <thread>
+
+#include <windows.h>
+
 namespace
 {
 	bool printInstructions{ false };
 	using Memory = std::array<unsigned char,32>;
 
-	void printBytes(const Memory& memory)
+	void printBytes(const Memory& memory, Memory::iterator memoryPtr)
 	{
-		for (const auto c : memory)
+		for (auto it{ memory.begin() }; it<memory.end(); ++it)
 		{
-			std::println("{0:08b} {0:#8x} {0:8} {1:>8?}", c,char(c));
+			if (it == memoryPtr)
+			{
+				std::println("\x1b[31m{0:08b} {0:#8x} {0:8} {1:>8?}\x1b[m", *it, static_cast<char>(*it));
+			}
+			else
+			{
+				std::println("{0:08b} {0:#8x} {0:8} {1:>8?}", *it,static_cast<char>(*it));
+			}
+			
 		}
 		std::println("");
 	}
 
 	const std::map<char, unsigned char> byteCodeMap
 	{
-		{'+', 0},
-		{ '-', 1 },
-		{'>', 2},
-		{ '<', 3 },
-		{'.', 4},
-		{',', 5 },
-		{'[',6 },
-		{']',7},
+		{'+',static_cast<unsigned char>( 0u)},
+		{'-',static_cast<unsigned char>( 1u)},
+		{'>',static_cast<unsigned char>( 2u)},
+		{'<',static_cast<unsigned char>( 3u)},
+		{'.',static_cast<unsigned char>( 4u)},
+		{',',static_cast<unsigned char>( 5u)},
+		{'[',static_cast<unsigned char>( 6u)},
+		{']',static_cast<unsigned char>( 7u)},
 	};
 
-	void printProgramCode(const std::string& code)
+	void printProgramCode(const std::string& code, std::string::iterator codeIter)
 	{
 		if (printInstructions)
 		{
@@ -52,12 +63,19 @@ namespace
 			}
 		std::println("");
 		}
-		for (const auto  c : code )
+		for (auto codeIt = code.begin(); codeIt<code.end(); codeIt++ )
 		{
-			auto it = byteCodeMap.find(c);
+			auto it = byteCodeMap.find(*codeIt);
 			if (it != byteCodeMap.end())
 			{
-				std::print("{:03b} ", it->second);
+				if (codeIt == codeIter)
+				{
+					std::print("\x1b[31m{:03b} \x1b[m", it->second);
+				}
+				else
+				{
+					std::print("{:03b} ", it->second);
+				}
 			}
 		}
 		std::println("");
@@ -69,120 +87,149 @@ namespace
 		std::ostream& output;
 	};
 
-	const std::map<char, std::function<void(Memory::iterator&,const InputOutput&)>> functionMap
+	void present(std::string& code, Memory& memory, std::stringstream& output, Memory::iterator memoryPtr, std::string::iterator codeIter,  bool bColor)
 	{
-		{'+', [](Memory::iterator& memoryPtr,const InputOutput&) {(*memoryPtr)++; }},
-		{'-', [](Memory::iterator& memoryPtr,const InputOutput&) {(*memoryPtr)--; } },
-		{'>', [](Memory::iterator& memoryPtr,const InputOutput&) {memoryPtr++; }},
-		{'<', [](Memory::iterator& memoryPtr,const InputOutput&) {memoryPtr--; } },
-		{',', [](Memory::iterator& memoryPtr,const InputOutput& inOut) {inOut.input >> *memoryPtr; }},
-		{'.', [](Memory::iterator& memoryPtr,const InputOutput& inOut) {inOut.output << *memoryPtr; } },
-		{'[', [](Memory::iterator& memoryPtr,const InputOutput& inOut) { }},
-		{']', [](Memory::iterator& memoryPtr,const InputOutput& inOut) { } },
-	};
-
-	std::function<void(Memory::iterator&,const InputOutput&)> toFunction(const unsigned char input)
-	{
-		auto it = functionMap.find(input);
-		if (it != functionMap.end())
+		if (bColor)
 		{
-			return it->second;
+			static HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+			static short i{ 1 };
+			SetConsoleTextAttribute(hConsole, ++i);
+			i = i >= 255 ? 0 : i;
 		}
-		return [](Memory::iterator&,const InputOutput&) {};
-	}
 
-	void present(std::string& code, Memory& memory, std::stringstream& output)
-	{
 		system("CLS");
 		std::println("++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.");
+		std::println("+[>>>->-[>->----<<<]>>]>.---.>+..+++.>>.<.>>---.<<<.+++.------.<-.>>+.");
+		printProgramCode(code, codeIter);
 		std::println("");
-		printProgramCode(code);
+		if (bColor)
+		{
+			static HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+			static short i{ 1 };
+			SetConsoleTextAttribute(hConsole, ++i);
+			i = i >= 255 ? 0 : i;
+		}
+		printBytes(memory, memoryPtr);
 		std::println("");
-		printBytes(memory);
+		std::print("Code:				");
+		for (auto codeIt = code.begin(); codeIt < code.end(); codeIt++)
+		{
+			if (codeIt == codeIter)
+			{
+				std::print("\x1b[31m{}\x1b[m", *codeIt);
+			}
+			else
+			{
+				if (bColor)
+				{
+					static HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+					static short i{ 1 };
+					SetConsoleTextAttribute(hConsole, ++i);
+					i = i >= 255 ? 0 : i;
+				}
+				std::print("{}", *codeIt);
+			}
+
+		}
 		std::println("");
-		std::println("Code:				{}", code);
-		std::println("Program output:	{}", output.str());
+		std::println("Output:	{}", output.str());
 
 		std::println("");
 		std::println("Type in Code:");
 	}
 }
 
-
-
 int main()
 {
+	bool bShow{ false };
+	bool bColor{ false };
 	Memory memory{};
 	Memory::iterator memoryPtr{ memory.begin()};
-	//std::ranges::iota(memory, 0);
 
 	std::stringstream output{};
 	std::string code;
+
+	std::function<void()> runLoop;
+
+	const std::map<char, std::function<void(const InputOutput&)>> functionMap
+	{
+		{'+', [&](const InputOutput&) {(*memoryPtr)++; }},
+		{'-', [&](const InputOutput&) {(*memoryPtr)--; } },
+		{'>', [&](const InputOutput&) {memoryPtr = memoryPtr == memory.end()-1 ? memory.begin(): memoryPtr+1; }},
+		{'<', [&](const InputOutput&) {memoryPtr = memoryPtr == memory.begin() ? memory.end()-1 : memoryPtr - 1; } },
+		{',', [&](const InputOutput& inOut) {inOut.input >> *memoryPtr; }},
+		{'.', [&](const InputOutput& inOut) {inOut.output << *memoryPtr; } },
+		{'[', [&](const InputOutput& ) {runLoop(); }},
+		{']', [&](const InputOutput& ) {} },
+	};
+
+	auto toFunction = [&](const unsigned char input) -> std::function<void( const InputOutput&)>
+		{
+			auto it = functionMap.find(input);
+			if (it != functionMap.end())
+			{
+				return it->second;
+			}
+			return [](const InputOutput&) {};
+		};
+
+	auto runCode = [&](auto func, std::string::iterator codeIter)
+		{
+			if (bShow)
+			{
+				present(code, memory, output, memoryPtr, codeIter, bColor);
+				using namespace std::chrono_literals;
+				std::this_thread::sleep_for(200ms);
+			}
+			func(InputOutput{ std::cin, output });
+		};
+
 	while (true)
 	{
-		present(code, memory, output);
+		present(code, memory, output, memoryPtr, code.end(),  bColor);
 
 		std::string input;
 		std::cin >> input;
+		
+		if (input == "c")
+		{
+			code.clear();
+		}
+		else if (input == "s")
+		{
+			bShow = !bShow;
+		}
+		else if (input == "f")
+		{
+			bColor = !bColor;
+		}
 
-		auto validInput{ input | std::views::filter([](auto c) {return functionMap.contains(c); }) };
-		code.append(std::string{ validInput.begin(),validInput.end()});
-		output.clear();
+		auto validInput{ input | std::views::filter([&](auto c) {return functionMap.contains(c); }) };
+		code.append(std::string{ validInput.begin(),validInput.end() });
+		output.str("");
 		memory = {};
 		memoryPtr = memory.begin();
 
-		auto codeStack{ code /*| std::views::transform(toFunction) */};
-		std::stack<decltype(codeStack.begin())> loopStack;
+		auto codeIt = code.begin();
 
-		auto runCode = [&](this auto& self, decltype(codeStack.begin())& codeIt)   -> void
+		runLoop = [&]()
 			{
-			const auto beginOfCurrendStack = codeIt;
-			for (; codeIt != codeStack.end(); ++codeIt)
-			{
-				present(code, memory, output);
-				//using namespace std::chrono_literals;
-				//std::this_thread::sleep_for(200ms);
-
-				if ((*codeIt) == '[')
+				++codeIt; // '[' wurde schon behandelt
+				auto beginOfLoop = codeIt;
+				while ((*memoryPtr) != 0)
 				{
-					if ((*memoryPtr) != 0)
+					codeIt = beginOfLoop; //jump to begin of Loop
+					for (; (*codeIt) != ']'; ++codeIt)
 					{
-						++codeIt;
-						self(codeIt);
-					}
-					continue;
-				}
-				else if((*codeIt) == ']')
-				{
-					if ((*memoryPtr) != 0)
-					{
-						if (beginOfCurrendStack == codeStack.begin())
-						{
-							int i = 0; 
-						}
-						else {
-							codeIt = beginOfCurrendStack;
-							codeIt--;
-							continue;
-						}
-					}
-					else
-					{
-						//++codeIt;
-						return;
+						runCode(toFunction(*codeIt), codeIt);
 					}
 				}
-				toFunction(*codeIt)(memoryPtr, InputOutput{ std::cin, output });
-			}
 			};
 
-
-		auto iter = codeStack.begin();
-		runCode(iter);
+		for (; codeIt != code.end(); ++codeIt)
+		{
+			runCode(toFunction(*codeIt), codeIt);
+		}
 	}
- 
-
-
-
 }
 
